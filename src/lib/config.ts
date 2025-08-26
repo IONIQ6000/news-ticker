@@ -46,6 +46,14 @@ const TOPIC_FEEDS: Record<string, Feed[]> = {
   ],
 };
 
+export const VALID_TOPICS: string[] = Object.keys(TOPIC_FEEDS);
+
+export function isValidTopic(topic: string | null | undefined): boolean {
+  if (!topic) return false;
+  const key = topic.toLowerCase().trim();
+  return VALID_TOPICS.includes(key);
+}
+
 function sanitizeFeeds(feeds: Feed[]): Feed[] {
   // Remove obvious duplicates and invalid entries
   const seen = new Set<string>();

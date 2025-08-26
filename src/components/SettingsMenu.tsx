@@ -77,11 +77,18 @@ export function SettingsMenu({ className }: { className?: string }) {
         />
         <div
           className={cn(
-            "absolute right-0 mt-2 w-80 z-50 rounded-xl ring-1 ring-white/20 border border-white/10 bg-white/20 backdrop-blur-md backdrop-saturate-150 shadow-xl shadow-black/30 supports-[backdrop-filter]:bg-white/12",
+            "absolute right-0 mt-2 w-80 z-50 rounded-xl shadow-xl",
             "transition-opacity ease-in-out",
-            visible ? "opacity-100" : "opacity-0 pointer-events-none"
+            visible ? "opacity-100" : "opacity-0 pointer-events-none",
+            // subtle surface, no border
+            "backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/12"
           )}
-          style={{ willChange: 'opacity', transitionDuration: `${visible ? FADE_IN_MS : FADE_OUT_MS}ms` }}
+          style={{
+            backgroundColor: 'var(--surface)',
+            boxShadow: '0 10px 35px rgba(0,0,0,0.30)',
+            willChange: 'opacity',
+            transitionDuration: `${visible ? FADE_IN_MS : FADE_OUT_MS}ms`
+          }}
           ref={panelRef}
           aria-hidden={!visible}
         >
@@ -94,7 +101,7 @@ export function SettingsMenu({ className }: { className?: string }) {
                 <span className="text-xs text-white/60">{breakingSpeed.toFixed(2)}x</span>
               </div>
               <input
-                className="w-full h-2 appearance-none bg-white/15 rounded-full [accent-color:white]"
+                className="w-full h-2 appearance-none rounded-full bg-white/15 [accent-color:white]"
                 type="range" min={0.5} max={3} step={0.05}
                 value={breakingSpeed}
                 onChange={(e) => setBreakingSpeed(Number(e.target.value))}
@@ -107,7 +114,7 @@ export function SettingsMenu({ className }: { className?: string }) {
                 <span className="text-xs text-white/60">{tickerSpeed.toFixed(2)}x</span>
               </div>
               <input
-                className="w-full h-2 appearance-none bg-white/15 rounded-full [accent-color:white]"
+                className="w-full h-2 appearance-none rounded-full bg-white/15 [accent-color:white]"
                 type="range" min={0.5} max={3} step={0.05}
                 value={tickerSpeed}
                 onChange={(e) => setTickerSpeed(Number(e.target.value))}

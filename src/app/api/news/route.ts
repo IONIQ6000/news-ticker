@@ -22,8 +22,10 @@ const parser = new Parser<unknown, FeedItem>({ timeout: 15_000 });
 
 export const revalidate = NEWS_CONFIG.cacheTime;
 
-export async function GET() {
-  const topic = NEWS_CONFIG.topic;
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const rawTopic = (searchParams.get("topic") || "").trim();
+  const topic = rawTopic || NEWS_CONFIG.topic;
   
   // Dynamically discover feeds for the topic
   let rssUrls: Array<{url: string, source: string}> = [];

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { cn } from "../lib/utils";
-import { NEWS_CONFIG } from "../lib/config";
+import { NEWS_CONFIG, VALID_TOPICS } from "../lib/config";
 import { useSettings } from "@/components/SettingsProvider";
 
 type NewsItem = {
@@ -24,6 +24,7 @@ type NewsResponse = {
 
 // News Mood Visualizer component - completely independent
 const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
+  const { theme } = useSettings();
   // Memoize the mood data calculation to prevent unnecessary recalculations
   const moodData = React.useMemo(() => {
     if (items.length === 0) {
@@ -89,28 +90,31 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
       <div className="relative w-full h-32 mb-6">
         {/* Background grid */}
         <div className="absolute inset-0 opacity-20">
-          <div className="w-full h-full bg-gradient-to-r from-white/10 via-white/5 to-white/10 rounded-lg" />
+          <div className={cn(
+            "w-full h-full rounded-lg",
+            theme === 'light' ? "bg-gradient-to-r from-black/10 via-black/5 to-black/10" : "bg-gradient-to-r from-white/10 via-white/5 to-white/10"
+          )} />
         </div>
         
         {/* Reference lines for mood spectrum */}
         <div className="absolute inset-0">
           {/* Center line (neutral baseline) */}
-          <div className="absolute left-0 right-0 top-1/2 h-px bg-white/10 transform -translate-y-1/2" />
+          <div className={cn("absolute left-0 right-0 top-1/2 h-px transform -translate-y-1/2", theme === 'light' ? "bg-black/10" : "bg-white/10")} />
           
           {/* Positive zone indicator */}
-          <div className="absolute left-0 right-0 top-1/4 h-px bg-white/5 transform -translate-y-1/2" />
-          <div className="absolute left-2 top-1/4 transform -translate-y-1/2 text-white/30 text-[10px] font-medium">
+          <div className={cn("absolute left-0 right-0 top-1/4 h-px transform -translate-y-1/2", theme === 'light' ? "bg-black/5" : "bg-white/5")} />
+          <div className={cn("absolute left-2 top-1/4 transform -translate-y-1/2 text-[10px] font-medium", theme === 'light' ? "text-black/30" : "text-white/30") }>
             Positive
           </div>
           
           {/* Negative zone indicator */}
-          <div className="absolute left-0 right-0 top-3/4 h-px bg-white/5 transform -translate-y-1/2" />
-          <div className="absolute left-2 top-3/4 transform -translate-y-1/2 text-white/30 text-[10px] font-medium">
+          <div className={cn("absolute left-0 right-0 top-3/4 h-px transform -translate-y-1/2", theme === 'light' ? "bg-black/5" : "bg-white/5")} />
+          <div className={cn("absolute left-2 top-3/4 transform -translate-y-1/2 text-[10px] font-medium", theme === 'light' ? "text-black/30" : "text-white/30") }>
             Negative
           </div>
           
           {/* Neutral zone indicator */}
-          <div className="absolute left-2 top-1/2 transform -translate-y-1/2 text-white/30 text-[10px] font-medium">
+          <div className={cn("absolute left-2 top-1/2 transform -translate-y-1/2 text-[10px] font-medium", theme === 'light' ? "text-black/30" : "text-white/30") }>
             Neutral
           </div>
         </div>
@@ -147,8 +151,9 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
             key={particle.id}
             className={cn(
               "absolute rounded-full animate-pulse transition-all duration-1000 ease-out",
-              particle.sentiment === 'positive' ? 'bg-white/70' : 
-              particle.sentiment === 'negative' ? 'bg-white/40' : 'bg-white/55'
+              theme === 'light'
+                ? (particle.sentiment === 'positive' ? 'bg-black/80' : particle.sentiment === 'negative' ? 'bg-black/40' : 'bg-black/60')
+                : (particle.sentiment === 'positive' ? 'bg-white/70' : particle.sentiment === 'negative' ? 'bg-white/40' : 'bg-white/55')
             )}
             style={{
               width: `${particle.size}px`,
@@ -165,9 +170,9 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
         <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
             <linearGradient id="moodGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="rgba(255,255,255,0.8)" />
-              <stop offset="50%" stopColor="rgba(255,255,255,0.4)" />
-              <stop offset="100%" stopColor="rgba(255,255,255,0.1)" />
+              <stop offset="0%" stopColor={theme === 'light' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)'} />
+              <stop offset="50%" stopColor={theme === 'light' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)'} />
+              <stop offset="100%" stopColor={theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'} />
             </linearGradient>
           </defs>
           
@@ -231,13 +236,15 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
 // Breaking News Alerts removed as requested
 
 export function NewsTicker({ className, visibleRows = 6 }: { className?: string; visibleRows?: number }) {
-  const { tickerSpeed } = useSettings();
+  const { tickerSpeed, theme } = useSettings();
   const [items, setItems] = React.useState<NewsItem[]>([]);
   const [topic, setTopic] = React.useState<string>("");
   const [totalFeeds, setTotalFeeds] = React.useState<number>(0);
   const [lastUpdated, setLastUpdated] = React.useState<string>("");
   const [isLoading, setIsLoading] = React.useState<boolean>(true);
   const [error, setError] = React.useState<string>("");
+  const [selectedTopic, setSelectedTopic] = React.useState<string>(NEWS_CONFIG.topic);
+  const [topicInput, setTopicInput] = React.useState<string>(NEWS_CONFIG.topic);
   const initialRows = Math.max(1, Math.min(visibleRows ?? 6, 15));
   const [userVisibleRows, setUserVisibleRows] = React.useState<number>(initialRows);
   const rowCount = Math.max(1, Math.min(userVisibleRows, 15));
@@ -246,6 +253,54 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
   const [refreshProgress, setRefreshProgress] = React.useState<number>(0);
   const [isPaused, setIsPaused] = React.useState<boolean>(false);
   const staggerTimeoutsRef = React.useRef<number[]>([]);
+  const [isTopicOpen, setIsTopicOpen] = React.useState<boolean>(false);
+  const ignoreBlurRef = React.useRef<boolean>(false);
+  const TOPIC_FADE_MS = 600;
+  const fadeTimeoutRef = React.useRef<number | null>(null);
+  const DROPDOWN_FADE_IN_MS = 275;
+  const DROPDOWN_FADE_OUT_MS = 600;
+  const [topicRender, setTopicRender] = React.useState<boolean>(false);
+  const [topicVisible, setTopicVisible] = React.useState<boolean>(false);
+  const dropdownRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Prefer fewer rows by default on small/portrait screens
+  React.useEffect(() => {
+    try {
+      const mq = window.matchMedia("(max-width: 640px), (orientation: portrait) and (max-width: 900px)");
+      if (mq.matches) {
+        setUserVisibleRows((prev) => Math.min(prev, 3));
+      }
+    } catch {}
+  }, []);
+  
+  // Clear fade timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (fadeTimeoutRef.current) {
+        clearTimeout(fadeTimeoutRef.current);
+        fadeTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Manage dropdown render/visibility for smooth fades
+  React.useLayoutEffect(() => {
+    if (isTopicOpen) {
+      setTopicRender(true);
+      setTopicVisible(false);
+      let r1 = 0, r2 = 0;
+      r1 = requestAnimationFrame(() => {
+        // Force a reflow on the dropdown element specifically
+        void dropdownRef.current?.getBoundingClientRect();
+        r2 = requestAnimationFrame(() => setTopicVisible(true));
+      });
+      return () => { cancelAnimationFrame(r1); cancelAnimationFrame(r2); };
+    } else {
+      setTopicVisible(false);
+      const t = setTimeout(() => setTopicRender(false), DROPDOWN_FADE_OUT_MS);
+      return () => clearTimeout(t);
+    }
+  }, [isTopicOpen, DROPDOWN_FADE_OUT_MS]);
 
   // Track latest refreshing state inside interval callbacks
   const isRefreshingRef = React.useRef(false);
@@ -301,7 +356,8 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
     
     try {
       setIsRefreshing(true);
-      const res = await fetch("/api/news", { next: { revalidate: 30 } });
+      const params = new URLSearchParams({ topic: selectedTopic });
+      const res = await fetch(`/api/news?${params.toString()}`, { next: { revalidate: 30 } });
       
       if (res.ok) {
         const data: NewsResponse = await res.json();
@@ -319,6 +375,25 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
     }
   };
 
+  // Apply topic input if valid; otherwise revert and flash error
+  const applyTopicInput = React.useCallback(() => {
+    const normalized = topicInput.trim();
+    if (normalized.length === 0) {
+      setTopicInput(selectedTopic);
+      return;
+    }
+    if (normalized !== selectedTopic) {
+      setTickerStates((prev) => prev.map(() => false));
+      if (fadeTimeoutRef.current) {
+        clearTimeout(fadeTimeoutRef.current);
+      }
+      fadeTimeoutRef.current = window.setTimeout(() => {
+        setSelectedTopic(normalized);
+        setLastUpdated(new Date().toISOString());
+      }, TOPIC_FADE_MS) as unknown as number;
+    }
+  }, [topicInput, selectedTopic]);
+
   // Progress bar component
   const RefreshProgressBar = () => {
     const totalDots = 30; // 30 dots for 60 seconds = 2 seconds per dot
@@ -332,8 +407,8 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
             className={cn(
               "w-1.5 h-1.5 rounded-full transition-all duration-500",
               i < activeDots 
-                ? "bg-white/70" // Active dots (brighter)
-                : "bg-white/15" // Inactive dots (dimmer)
+                ? (theme === 'light' ? "bg-black/80" : "bg-white/70")
+                : (theme === 'light' ? "bg-black/15" : "bg-white/15")
             )}
           />
         ))}
@@ -354,19 +429,25 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
         }
       }}
       className={cn(
-        "w-6 h-6 rounded-full border border-white/30 flex items-center justify-center transition-all duration-200 hover:border-white/50 hover:bg-white/10",
-        isPaused ? "bg-white/20" : "bg-white/5"
+        "w-6 h-6 rounded-full flex items-center justify-center transition-all duration-200",
+        theme === 'light'
+          ? "border border-black/30 hover:border-black/50 hover:bg-black/10"
+          : "border border-white/30 hover:border-white/50 hover:bg-white/10",
+        isPaused ? (theme === 'light' ? "bg-black/20" : "bg-white/20") : (theme === 'light' ? "bg-black/5" : "bg-white/5")
       )}
       title={isPaused ? "Resume auto-refresh" : "Pause auto-refresh"}
     >
       {isPaused ? (
         // Play icon (triangle)
-        <div className="w-0 h-0 border-l-[6px] border-l-white border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent ml-0.5" />
+        <div
+          className={cn("w-0 h-0 border-l-[6px] border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent ml-0.5")}
+          style={{ borderLeftColor: theme === 'light' ? '#101114' : '#ffffff' }}
+        />
       ) : (
         // Pause icon (two bars)
         <div className="flex items-center gap-0.5">
-          <div className="w-1 h-3 bg-white rounded-sm" />
-          <div className="w-1 h-3 bg-white rounded-sm" />
+          <div className="w-1 h-3 rounded-sm" style={{ backgroundColor: theme === 'light' ? 'rgba(16,17,20,1)' : 'rgba(255,255,255,1)' }} />
+          <div className="w-1 h-3 rounded-sm" style={{ backgroundColor: theme === 'light' ? 'rgba(16,17,20,1)' : 'rgba(255,255,255,1)' }} />
         </div>
       )}
     </button>
@@ -378,7 +459,8 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
       try {
         setIsLoading(true);
         setError("");
-        const res = await fetch("/api/news", { next: { revalidate: 30 } });
+        const params = new URLSearchParams({ topic: selectedTopic });
+        const res = await fetch(`/api/news?${params.toString()}`, { next: { revalidate: 30 } });
 
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
@@ -403,13 +485,13 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
       }
     };
 
-    // Only fetch initial data
+    // Fetch immediately on mount and whenever topic changes
     fetchNews();
 
     return () => {
       cancelled = true;
     };
-  }, []); // Only run once on mount
+  }, [selectedTopic]);
 
   // Separate effect for auto-refresh (only when not paused)
   React.useEffect(() => {
@@ -420,7 +502,8 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
       if (isRefreshingRef.current) return;
       try {
         setIsRefreshing(true);
-        const res = await fetch("/api/news", { next: { revalidate: 30 } });
+        const params = new URLSearchParams({ topic: selectedTopic });
+        const res = await fetch(`/api/news?${params.toString()}`, { next: { revalidate: 30 } });
         
         if (res.ok) {
           const data: NewsResponse = await res.json();
@@ -455,7 +538,7 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
     return () => {
       clearInterval(intervalId);
     };
-  }, [isPaused, isLoading, lastUpdated]);
+  }, [isPaused, isLoading, lastUpdated, selectedTopic]);
 
   // Progress bar countdown effect
   React.useEffect(() => {
@@ -683,55 +766,133 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
         <>
           {/* Breaking News Alerts removed */}
           {/* Topic and Status Bar */}
-          <div className="border-y border-white/10 pt-8 pb-4">
-            <div className="flex items-center justify-between px-6">
-              <div className="flex items-center gap-3">
-                <div className="text-white/60 text-sm">Topic:</div>
-                <div className="text-white font-medium">{topic || "Loading..."}</div>
-                <div className="text-white/40 text-sm">•</div>
-                <div className="text-white/60 text-sm">{totalFeeds} feeds</div>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* Visible rows control - modern segmented slider */}
-                <div className="hidden md:flex items-center gap-2">
-                  <span className="text-xs text-white/60">Rows</span>
+          <div className="border-y border-white/10 pt-6 pb-3 sm:pt-8 sm:pb-4">
+            <div className="flex items-center justify-between px-4 md:px-6">
+              <div className="flex items-center gap-2 md:gap-3 flex-1">
+                <span className="text-white/60 text-xs sm:text-sm">Topic</span>
+                {/* Advanced topic input/dropdown */}
+                <div className={cn("relative", theme === 'light' ? "text-black" : "text-white")}>
                   <input
-                    type="range"
-                    min={1}
-                    max={15}
-                    value={rowCount}
-                    onChange={(e) => setUserVisibleRows(Number(e.target.value))}
-                    className="w-36 h-2 appearance-none bg-white/10 rounded-full outline-none cursor-pointer [accent-color:white]"
+                    value={topicInput}
+                    onChange={(e) => { setTopicInput(e.target.value); setIsTopicOpen(true); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { applyTopicInput(); setIsTopicOpen(false); } }}
+                    onFocus={() => setIsTopicOpen(true)}
+                    onBlur={() => { if (!ignoreBlurRef.current) { applyTopicInput(); setIsTopicOpen(false); } else { ignoreBlurRef.current = false; } }}
+                    aria-label="Topic"
+                    placeholder="topic…"
+                    className={cn(
+                      "w-[160px] sm:w-[200px] rounded px-2 py-1 focus:outline-none text-xs sm:text-sm",
+                      theme === 'light'
+                        ? "bg-black/5 border border-black/20 text-black/80 focus:ring-1 focus:ring-black/30"
+                        : "bg-black/40 border border-white/15 text-white/80 focus:ring-1 focus:ring-white/30"
+                    )}
                   />
-                  <span className="text-xs text-white/60 w-6 text-right tabular-nums">{rowCount}</span>
-                </div>
-                {/* Mobile fallback */}
-                <div className="md:hidden">
-                  <select
-                    value={rowCount}
-                    onChange={(e) => setUserVisibleRows(Number(e.target.value))}
-                    className="bg-black/40 border border-white/15 rounded px-2 py-1 text-white/80 focus:outline-none focus:ring-1 focus:ring-white/30 text-xs"
-                  >
-                    {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
-                <PlayPauseButton />
-                <RefreshProgressBar />
-                <button
-                  onClick={manualRefresh}
-                  disabled={isRefreshing}
-                  className={cn(
-                    "w-5 h-5 rounded transition-all duration-200 hover:bg-white/10",
-                    isRefreshing ? "animate-spin" : "hover:scale-110"
+                  {topicRender && (
+                    <div
+                      ref={dropdownRef}
+                      className={cn(
+                        "absolute left-0 mt-2 w-[min(80vw,280px)] rounded-xl shadow-xl z-50 max-h-64 overflow-auto p-1 backdrop-blur-md backdrop-saturate-150",
+                        "transition-opacity ease-in-out",
+                        topicVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                      )}
+                      style={{
+                        backgroundColor: 'var(--surface)',
+                        transitionDuration: `${topicVisible ? DROPDOWN_FADE_IN_MS : DROPDOWN_FADE_OUT_MS}ms`,
+                        willChange: 'opacity'
+                      }}
+                      onMouseDown={() => { ignoreBlurRef.current = true; }}
+                      onMouseUp={() => { setTimeout(() => { ignoreBlurRef.current = false; }, 0); }}
+                    >
+                      {/* Bold custom option if not exactly a known topic */}
+                      {topicInput.trim().length > 0 && !VALID_TOPICS.includes(topicInput.trim().toLowerCase()) && (
+                        <button
+                          type="button"
+                          className={cn("w-full text-left px-3 py-2 rounded font-semibold", theme === 'light' ? "text-black hover:bg-black/10" : "text-white hover:bg-white/10")}
+                          onClick={() => { setTopicInput(topicInput.trim()); applyTopicInput(); setIsTopicOpen(false); }}
+                        >
+                          {topicInput.trim()}
+                        </button>
+                      )}
+                      {VALID_TOPICS.map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={cn(
+                            "w-full text-left px-3 py-2 rounded",
+                            theme === 'light' ? "text-black/80 hover:bg-black/10" : "text-white/80 hover:bg-white/10",
+                            t === selectedTopic ? (theme === 'light' ? "bg-black/10 text-black" : "bg-white/10 text-white") : ""
+                          )}
+                          onClick={() => {
+                            setTopicInput(t);
+                            setTickerStates((prev) => prev.map(() => false));
+                            if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+                            fadeTimeoutRef.current = window.setTimeout(() => {
+                              setSelectedTopic(t);
+                              setLastUpdated(new Date().toISOString());
+                            }, TOPIC_FADE_MS) as unknown as number;
+                            setIsTopicOpen(false);
+                          }}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                  title="Manual refresh"
-                >
-                  <svg className="w-full h-full" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </button>
+                </div>
+                <div className="text-white/40 text-xs sm:text-sm">•</div>
+                <div className="text-white/60 text-xs sm:text-sm">{totalFeeds} feeds</div>
+              </div>
+              <div className="flex w-full md:w-auto flex-col gap-1.5 items-end md:items-center md:flex-row md:gap-2">
+                {/* Removed duplicate topic selectors; unified above */}
+                <div className="flex items-center flex-wrap gap-1.5 md:gap-2 justify-end">
+                  {/* Visible rows control - modern segmented slider */}
+                  <div className="hidden md:flex items-center gap-2">
+                    <span className="text-xs text-white/60">Rows</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={15}
+                      value={rowCount}
+                      onChange={(e) => setUserVisibleRows(Number(e.target.value))}
+                      className={cn("w-36 h-2 appearance-none rounded-full outline-none cursor-pointer", theme === 'light' ? "bg-black/15 [accent-color:black]" : "bg-white/10 [accent-color:white]")}
+                    />
+                    <span className="text-xs text-white/60 w-6 text-right tabular-nums">{rowCount}</span>
+                  </div>
+                  {/* Mobile fallback */}
+                  <div className="md:hidden">
+                    <select
+                      value={rowCount}
+                      onChange={(e) => setUserVisibleRows(Number(e.target.value))}
+                      className="min-w-[72px] shrink-0 bg-black/40 border border-white/15 rounded px-2 py-1 text-white/80 focus:outline-none focus:ring-1 focus:ring-white/30 text-xs"
+                    >
+                      {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <PlayPauseButton />
+                  <button
+                    onClick={manualRefresh}
+                    disabled={isRefreshing}
+                    className={cn(
+                      "w-5 h-5 rounded transition-all duration-200 hover:bg-white/10",
+                      isRefreshing ? "animate-spin" : "hover:scale-110"
+                    )}
+                    title="Manual refresh"
+                  >
+                    <svg className="w-full h-full" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                  {/* Inline countdown on md+ */}
+                  <div className="hidden md:block">
+                    <RefreshProgressBar />
+                  </div>
+                </div>
+                {/* Mobile-only countdown on its own line */}
+                <div className="w-full md:hidden flex justify-end">
+                  <RefreshProgressBar />
+                </div>
               </div>
             </div>
           </div>
@@ -752,10 +913,10 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
                   {rowItems.map((item, idx) => (
                     <span
                       key={`row${i}-${item.id}-${idx}`}
-                      className="flex items-center gap-4 px-6 py-3 text-sm md:text-base flex-shrink-0"
+                      className="flex items-center gap-3 md:gap-4 px-3 md:px-6 py-2 md:py-3 text-xs sm:text-sm md:text-base flex-shrink-0"
                     >
                       {item.source && (
-                        <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-wide flex-shrink-0">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2.5 md:px-3 py-0.5 md:py-1 text-[10px] sm:text-xs uppercase tracking-wide flex-shrink-0">
                           {item.source}
                         </span>
                       )}
@@ -774,7 +935,7 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
                       >
                         {item.title}
                       </Link>
-                      <span className="mx-2 text-white/30 flex-shrink-0">•</span>
+                      <span className="mx-1.5 md:mx-2 text-white/30 flex-shrink-0">•</span>
                     </span>
                   ))}
                 </div>
@@ -788,7 +949,8 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
             tickerStates[rowCount - 1] ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4",
             isRefreshing ? "opacity-50 blur-sm" : ""
           )}>
-            <div className="mx-auto max-w-6xl px-6 py-6">
+            <div className="mx-auto max-w-6xl px-4 sm:px-6 py-4 sm:py-6">
+              <div className="sm:hidden text-center text-[10px] text-white/50 mb-2">Mood analysis</div>
               <NewsMoodVisualizer items={items} />
             </div>
           </div>

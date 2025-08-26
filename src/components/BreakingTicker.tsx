@@ -31,6 +31,19 @@ export function BreakingTicker({ className }: { className?: string }) {
   const [distancePx, setDistancePx] = React.useState<number>(0);
   const [cycleKey, setCycleKey] = React.useState<number>(0);
   const { breakingSpeed } = useSettings();
+  const FRESH_MS = 60 * 60 * 1000; // consider items fresh if within the last 60 minutes
+
+  const getPublishedAtMs = React.useCallback((n: NewsItem): number => {
+    if (!n.publishedAt) return 0;
+    const t = Date.parse(n.publishedAt);
+    return isNaN(t) ? 0 : t;
+  }, []);
+
+  const isFresh = React.useCallback((n: NewsItem): boolean => {
+    const ts = getPublishedAtMs(n);
+    if (!ts) return false;
+    return Date.now() - ts <= FRESH_MS;
+  }, [getPublishedAtMs]);
 
   // Fetch new items periodically, but do not reset UI; push to buffer
   const fetchBreaking = React.useCallback(async () => {
@@ -42,19 +55,26 @@ export function BreakingTicker({ className }: { className?: string }) {
       const data: ApiResponse = await res.json();
       setLastFetchedAt(data.lastUpdated);
 
-      // Deduplicate against both existing items and buffer by title+source
+      // Freshness gate + dedupe against current session
       const existingKeys = new Set<string>([
         ...items.map((n) => `${n.source}:${n.title}`),
         ...buffer.map((n) => `${n.source}:${n.title}`),
       ]);
 
-      const fresh = data.items.filter((n) => !existingKeys.has(`${n.source}:${n.title}`));
-      if (fresh.length) {
-        setBuffer((prev) => [...prev, ...fresh]);
+      const incomingFresh = data.items
+        .filter(isFresh)
+        .filter((n) => !existingKeys.has(`${n.source}:${n.title}`));
+
+      if (incomingFresh.length) {
+        setBuffer((prev) => {
+          // keep only fresh items in buffer, then append new fresh
+          const kept = prev.filter(isFresh);
+          return [...kept, ...incomingFresh];
+        });
         // If ticker hasn't primed yet, prime immediately with whatever we have
         if (!isReady && items.length === 0) {
-          const take = Math.min(20, fresh.length);
-          setItems(fresh.slice(0, take));
+          const take = Math.min(20, incomingFresh.length);
+          setItems(incomingFresh.slice(0, take));
           setBuffer((prev) => prev.slice(take));
         }
       }
@@ -63,7 +83,7 @@ export function BreakingTicker({ className }: { className?: string }) {
     } finally {
       setIsFetching(false);
     }
-  }, [isFetching, items, buffer, isReady]);
+  }, [isFetching, items, buffer, isReady, isFresh]);
 
   // Initial fetch and interval
   React.useEffect(() => {
@@ -75,12 +95,17 @@ export function BreakingTicker({ className }: { className?: string }) {
   // Prime items as soon as anything is available; do not render ticker until measured
   React.useEffect(() => {
     if (isReady) return;
-    if (buffer.length >= 1 && items.length === 0) {
-      const take = Math.min(20, buffer.length);
-      setItems(buffer.slice(0, take));
-      setBuffer((prev) => prev.slice(take));
+    if (items.length === 0) {
+      const freshBuffer = buffer.filter(isFresh);
+      if (freshBuffer.length >= 1) {
+        const take = Math.min(20, freshBuffer.length);
+        setItems(freshBuffer.slice(0, take));
+        // remove taken items by identity
+        const takenIds = new Set(freshBuffer.slice(0, take).map(n => n.id));
+        setBuffer((prev) => prev.filter(n => !takenIds.has(n.id)));
+      }
     }
-  }, [buffer, items.length, isReady]);
+  }, [buffer, items.length, isReady, isFresh]);
 
   // Measure sequence width and mark ready, then fade in
   React.useEffect(() => {
@@ -103,15 +128,18 @@ export function BreakingTicker({ className }: { className?: string }) {
   // At iteration boundaries, append from buffer and remesure to avoid speed creep
   const handleIteration = React.useCallback(() => {
     // Move a few new items in, drop a few old to keep list length bounded
-    if (buffer.length > 0) {
-      const toShift = Math.min(6, buffer.length);
+    const freshBuffer = buffer.filter(isFresh);
+    if (freshBuffer.length > 0) {
+      const toShift = Math.min(6, freshBuffer.length);
       setItems((prev) => {
-        const next = [...prev, ...buffer.slice(0, toShift)];
+        const next = [...prev, ...freshBuffer.slice(0, toShift)];
         // keep last N to cap width growth
         const capped = next.slice(-200);
         return capped;
       });
-      setBuffer((prev) => prev.slice(toShift));
+      // remove the ones we appended from buffer by identity
+      const takenIds = new Set(freshBuffer.slice(0, toShift).map(n => n.id));
+      setBuffer((prev) => prev.filter(n => !takenIds.has(n.id)));
     }
 
     // Recalculate width for next cycle
@@ -137,23 +165,23 @@ export function BreakingTicker({ className }: { className?: string }) {
   };
 
   return (
-    <div className={cn("w-full bg-black text-white border-b border-white/10", className)}>
+    <div className={cn("w-full bg-black text-white border-b border-white/10 font-mono", className)}>
       <div className="mx-auto max-w-full">
-        <div className="flex items-center gap-3 px-4 pt-2 text-[10px] uppercase tracking-wider text-white/50">
+        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 pt-1.5 sm:pt-2 text-[9px] sm:text-[10px] uppercase tracking-wider text-white/50">
           <span className="text-white/70">Global Breaking Headlines</span>
           <span className="hidden md:inline text-white/30">•</span>
           <span className="hidden md:inline text-white/40">Live, continuous scroll</span>
         </div>
         {/* Placeholder until ready */}
         {!isReady && (
-          <div className="px-4 py-3">
-            <div className="w-full rounded bg-white/5 border border-white/10 px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+          <div className="px-3 sm:px-4 py-2 sm:py-3">
+            <div className="w-full rounded bg-white/5 border border-white/10 px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 sm:gap-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />
-                <span className="inline-flex items-center rounded bg-white/20 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/90">Live Breaking</span>
-                <span className="text-white/90 text-sm font-medium">Preparing live global headlines…</span>
+                <span className="inline-flex items-center rounded bg-white/20 px-2 py-0.5 text-[9px] sm:text-[10px] uppercase tracking-wide text-white/90">Live Breaking</span>
+                <span className="text-white/90 text-xs sm:text-sm font-medium">Preparing live global headlines…</span>
               </div>
-              <div className="text-white/45 text-[10px] uppercase tracking-wide hidden sm:block">
+              <div className="text-white/45 text-[9px] sm:text-[10px] uppercase tracking-wide hidden sm:block">
                 AP • BBC • Euronews • Le Monde • TIME
               </div>
             </div>
@@ -163,14 +191,14 @@ export function BreakingTicker({ className }: { className?: string }) {
         <div className="absolute opacity-0 pointer-events-none -z-10" aria-hidden>
           <div ref={sequenceRef} className="flex whitespace-nowrap">
             {items.map((item, idx) => (
-              <span key={`m-${item.id}-${idx}`} className="flex items-center gap-3 px-5 py-3 text-base md:text-lg font-semibold">
+              <span key={`m-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3 text-sm md:text-lg font-semibold">
                 {item.source ? (
-                  <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                  <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[9px] md:text-[10px] uppercase tracking-wide">
                     {item.source}
                   </span>
                 ) : null}
                 <span className="text-white/60">{item.title}</span>
-                <span className="mx-3 text-white/30">•</span>
+                <span className="mx-2 md:mx-3 text-white/30">•</span>
               </span>
             ))}
           </div>
@@ -191,9 +219,9 @@ export function BreakingTicker({ className }: { className?: string }) {
               {/* duplicate sequence for seamless loop */}
               <div className="flex">
                 {items.map((item, idx) => (
-                  <span key={`a-${item.id}-${idx}`} className="flex items-center gap-3 px-5 py-3 text-base md:text-lg font-semibold">
+                  <span key={`a-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3 text-sm md:text-lg font-semibold">
                     {item.source ? (
-                      <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                      <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[9px] md:text-[10px] uppercase tracking-wide">
                         {item.source}
                       </span>
                     ) : null}
@@ -204,15 +232,15 @@ export function BreakingTicker({ className }: { className?: string }) {
                         {item.title}
                       </Link>
                     )}
-                    <span className="mx-3 text-white/30">•</span>
+                    <span className="mx-2 md:mx-3 text-white/30">•</span>
                   </span>
                 ))}
               </div>
               <div className="flex">
                 {items.map((item, idx) => (
-                  <span key={`b-${item.id}-${idx}`} className="flex items-center gap-3 px-5 py-3 text-base md:text-lg font-semibold">
+                  <span key={`b-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3 text-sm md:text-lg font-semibold">
                     {item.source ? (
-                      <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                      <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[9px] md:text-[10px] uppercase tracking-wide">
                         {item.source}
                       </span>
                     ) : null}
@@ -223,7 +251,7 @@ export function BreakingTicker({ className }: { className?: string }) {
                         {item.title}
                       </Link>
                     )}
-                    <span className="mx-3 text-white/30">•</span>
+                    <span className="mx-2 md:mx-3 text-white/30">•</span>
                   </span>
                 ))}
               </div>
