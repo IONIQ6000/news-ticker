@@ -55,18 +55,17 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
 		// Respect reduced motion
 		const prefersReduced = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		const supportsVT = typeof document !== 'undefined' && 'startViewTransition' in document;
+		const supportsVT = typeof document !== 'undefined' && 'startViewTransition' in (document as Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void> } });
 
 		if (supportsVT && !prefersReduced) {
 			const root = document.documentElement;
 			// Mark that we're using VT to avoid fallback CSS transitions
 			root.classList.add('using-view-transitions');
-			// @ts-expect-error startViewTransition is not yet in TS lib
-			(document as any).startViewTransition(() => {
+			(document as Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void> } }).startViewTransition?.(() => {
 				// Apply DOM changes synchronously within the transition for smoothness
 				root.setAttribute('data-theme', t);
 				setThemeState(t);
-			}).finished.finally(() => {
+			})?.finished.finally(() => {
 				root.classList.remove('using-view-transitions');
 			});
 			return;

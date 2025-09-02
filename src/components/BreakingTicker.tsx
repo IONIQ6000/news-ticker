@@ -155,13 +155,12 @@ export function BreakingTicker({ className }: { className?: string }) {
 
   const baseDurationSec = 140; // default speed
   const durationSec = baseDurationSec / Math.max(0.5, Math.min(3, breakingSpeed));
-  const rowStyle: React.CSSProperties = {
+  const rowStyle: React.CSSProperties & { ['--distance']?: string } = {
     animation: `breaking-left ${durationSec}s linear infinite`,
     minWidth: "max-content",
     willChange: "transform",
     backfaceVisibility: "hidden",
-    // CSS var as string
-    ["--distance" as any]: String(distancePx),
+    ['--distance']: String(distancePx),
   };
 
   return (

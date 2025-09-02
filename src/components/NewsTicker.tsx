@@ -96,7 +96,8 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
     return { positive, negative, neutral, total: items.length };
   }, [items]);
 
-  if (moodData.total === 0) return null;
+  // Render even if zero to keep layout stable; show empty state instead
+  const hasData = moodData.total > 0;
 
   const positivePercent = (moodData.positive / moodData.total) * 100;
   const negativePercent = (moodData.negative / moodData.total) * 100;
@@ -200,14 +201,18 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
           {/* Monochrome horizontal stacked bar */}
           <div className="mx-auto w-full max-w-xl mb-6">
             <div className="relative h-4 rounded-full overflow-hidden" style={{ backgroundColor: colorTrack }}>
-              <div className="absolute left-0 top-0 h-full mood-shimmer" style={{ width: `${positivePercent}%`, backgroundColor: colorStrong }} />
-              <div className="absolute top-0 h-full mood-shimmer" style={{ left: `${positivePercent}%`, width: `${neutralPercent}%`, backgroundColor: colorMid }} />
-              <div className="absolute right-0 top-0 h-full mood-shimmer" style={{ width: `${negativePercent}%`, backgroundColor: colorSoft }} />
+              {hasData ? (
+                <>
+                  <div className="absolute left-0 top-0 h-full mood-shimmer" style={{ width: `${positivePercent}%`, backgroundColor: colorStrong }} />
+                  <div className="absolute top-0 h-full mood-shimmer" style={{ left: `${positivePercent}%`, width: `${neutralPercent}%`, backgroundColor: colorMid }} />
+                  <div className="absolute right-0 top-0 h-full mood-shimmer" style={{ width: `${negativePercent}%`, backgroundColor: colorSoft }} />
+                </>
+              ) : null}
             </div>
             <div className="mt-2 flex justify-between text-[11px] text-white/60">
-              <span>Positive {positivePercent.toFixed(0)}%</span>
-              <span>Neutral {neutralPercent.toFixed(0)}%</span>
-              <span>Negative {negativePercent.toFixed(0)}%</span>
+              <span>Positive {hasData ? positivePercent.toFixed(0) : '0'}%</span>
+              <span>Neutral {hasData ? neutralPercent.toFixed(0) : '0'}%</span>
+              <span>Negative {hasData ? negativePercent.toFixed(0) : '0'}%</span>
             </div>
           </div>
 
@@ -215,18 +220,18 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
           <div className="flex justify-center items-center gap-10 text-sm">
             <div className="flex items-center gap-2">
               <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorStrong }} />
-              <div className="text-white/80">{moodData.positive}</div>
-              <div className="text-white/40 text-xs">({positivePercent.toFixed(1)}%)</div>
+              <div className="text-white/80">{hasData ? moodData.positive : 0}</div>
+              <div className="text-white/40 text-xs">({hasData ? positivePercent.toFixed(1) : '0.0'}%)</div>
             </div>
             <div className="flex items-center gap-2">
               <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorMid }} />
-              <div className="text-white/80">{moodData.neutral}</div>
-              <div className="text-white/40 text-xs">({neutralPercent.toFixed(1)}%)</div>
+              <div className="text-white/80">{hasData ? moodData.neutral : 0}</div>
+              <div className="text-white/40 text-xs">({hasData ? neutralPercent.toFixed(1) : '0.0'}%)</div>
             </div>
             <div className="flex items-center gap-2">
               <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorSoft }} />
-              <div className="text-white/80">{moodData.negative}</div>
-              <div className="text-white/40 text-xs">({negativePercent.toFixed(1)}%)</div>
+              <div className="text-white/80">{hasData ? moodData.negative : 0}</div>
+              <div className="text-white/40 text-xs">({hasData ? negativePercent.toFixed(1) : '0.0'}%)</div>
             </div>
           </div>
         </div>
@@ -254,6 +259,8 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
     </div>
   );
 });
+
+NewsMoodVisualizer.displayName = "NewsMoodVisualizer";
 
 // Breaking News Alerts removed as requested
 
