@@ -20,7 +20,8 @@ type NewsItem = {
 
 const parser = new Parser<unknown, FeedItem>({ timeout: 15_000 });
 
-export const revalidate = NEWS_CONFIG.cacheTime;
+// Next.js requires a static number here; keep in sync with NEWS_CONFIG.cacheTime
+export const revalidate = 600;
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
