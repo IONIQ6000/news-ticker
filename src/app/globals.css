@@ -77,7 +77,13 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
-  transition: background-color 420ms ease, color 420ms ease;
+  transition: background-color 360ms ease, color 360ms ease;
+}
+
+/* Prevent horizontal scroll/blank space on wide tickers */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* Keyframes for ultra-slow marquee animations used by NewsTicker */
@@ -86,11 +92,59 @@ body {
   100% { transform: translateX(-50%); }
 }
 
-/* Smooth theme transition helper */
+/* Smooth theme transition helper: only colors and outlines, not layout */
 .theme-transition *,
 .theme-transition *::before,
 .theme-transition *::after {
-  transition: background-color 420ms ease, color 420ms ease, border-color 420ms ease, fill 420ms ease, stroke 420ms ease, box-shadow 420ms ease, outline-color 420ms ease, caret-color 420ms ease;
+  transition: background-color 360ms ease, color 360ms ease, border-color 360ms ease, fill 360ms ease, stroke 360ms ease, box-shadow 360ms ease, outline-color 360ms ease, caret-color 360ms ease;
+}
+
+/* Reduce/disable transitions if user prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition: none !important;
+  }
+  .mood-rotate-slow { animation: none !important; }
+  .mood-shimmer { animation: none !important; }
+}
+
+/* View Transitions: ensure a clean cross-fade when supported */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 240ms;
+  animation-timing-function: ease;
+  mix-blend-mode: normal;
+}
+
+/* Subtle rotation for mood donut sheen */
+@keyframes mood-rotate-slow {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.mood-rotate-slow {
+  transform-origin: center;
+  animation: mood-rotate-slow 24s linear infinite;
+}
+
+/* Subtle shimmer across stacked bar segments */
+@keyframes mood-shimmer {
+  0% { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.mood-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,0.08) 20%,
+    transparent 40%
+  );
+  background-size: 200% 100%;
+  animation: mood-shimmer 6s linear infinite;
 }
 
 @keyframes ticker-right {

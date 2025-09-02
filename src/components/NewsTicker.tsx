@@ -25,6 +25,33 @@ type NewsResponse = {
 // News Mood Visualizer component - completely independent
 const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
   const { theme } = useSettings();
+  const [view, setView] = React.useState<"mood" | "sources">("mood");
+  const [isSwitching, setIsSwitching] = React.useState<boolean>(false);
+  const switchTimeoutRef = React.useRef<number | null>(null);
+
+  const changeView = React.useCallback((next: "mood" | "sources") => {
+    if (next === view) return;
+    setIsSwitching(true);
+    if (switchTimeoutRef.current) { window.clearTimeout(switchTimeoutRef.current); switchTimeoutRef.current = null; }
+    switchTimeoutRef.current = window.setTimeout(() => { setIsSwitching(false); }, 320) as unknown as number;
+    setView(next);
+  }, [view]);
+
+  React.useEffect(() => {
+    return () => { if (switchTimeoutRef.current) window.clearTimeout(switchTimeoutRef.current); };
+  }, []);
+
+  // Stabilize container height during switches to avoid page jank
+  const moodRef = React.useRef<HTMLDivElement | null>(null);
+  const sourcesRef = React.useRef<HTMLDivElement | null>(null);
+  const [containerMinHeight, setContainerMinHeight] = React.useState<number>(0);
+  const measureHeights = React.useCallback(() => {
+    const h1 = moodRef.current ? moodRef.current.offsetHeight : 0;
+    const h2 = sourcesRef.current ? sourcesRef.current.offsetHeight : 0;
+    const max = Math.max(h1, h2);
+    if (max && max !== containerMinHeight) setContainerMinHeight(max);
+  }, [containerMinHeight]);
+  React.useLayoutEffect(() => { measureHeights(); }, [measureHeights, items, theme]);
   // Memoize the mood data calculation to prevent unnecessary recalculations
   const moodData = React.useMemo(() => {
     if (items.length === 0) {
@@ -75,158 +102,153 @@ const NewsMoodVisualizer = React.memo(({ items }: { items: NewsItem[] }) => {
   const negativePercent = (moodData.negative / moodData.total) * 100;
   const neutralPercent = (moodData.neutral / moodData.total) * 100;
 
+  // Monochrome palette (emphasis on black)
+  const colorStrong = theme === 'light' ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.90)';
+  const colorMid = theme === 'light' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)';
+  const colorSoft = theme === 'light' ? 'rgba(0,0,0,0.30)' : 'rgba(255,255,255,0.30)';
+  const colorTrack = theme === 'light' ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.10)';
+
+  // Sources breakdown (top 5 + other)
+  const sourcesData = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+      const key = (item.source || "Unknown").trim() || "Unknown";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const total = items.length || 1;
+    const unique = entries.length;
+    const top = entries.slice(0, 5);
+    const rest = entries.slice(5);
+    if (rest.length) {
+      const otherCount = rest.reduce((sum, [, n]) => sum + n, 0);
+      top.push(["Other", otherCount]);
+    }
+    const list = top.map(([name, n]) => ({ name, count: n, percent: (n / total) * 100 }));
+    return { total, unique, list };
+  }, [items]);
+
   return (
     <div className="w-full">
-      <div className="text-center mb-4">
-        <h3 className="text-white/80 text-sm font-medium uppercase tracking-wider mb-1">
-          News Mood Analysis
-        </h3>
-        <div className="text-white/40 text-xs">
-          {moodData.total} stories analyzed • Real-time sentiment tracking
-        </div>
-      </div>
-      
-      {/* Mood Flow Visualization */}
-      <div className="relative w-full h-32 mb-6">
-        {/* Background grid */}
-        <div className="absolute inset-0 opacity-20">
-          <div className={cn(
-            "w-full h-full rounded-lg",
-            theme === 'light' ? "bg-gradient-to-r from-black/10 via-black/5 to-black/10" : "bg-gradient-to-r from-white/10 via-white/5 to-white/10"
-          )} />
-        </div>
-        
-        {/* Reference lines for mood spectrum */}
-        <div className="absolute inset-0">
-          {/* Center line (neutral baseline) */}
-          <div className={cn("absolute left-0 right-0 top-1/2 h-px transform -translate-y-1/2", theme === 'light' ? "bg-black/10" : "bg-white/10")} />
-          
-          {/* Positive zone indicator */}
-          <div className={cn("absolute left-0 right-0 top-1/4 h-px transform -translate-y-1/2", theme === 'light' ? "bg-black/5" : "bg-white/5")} />
-          <div className={cn("absolute left-2 top-1/4 transform -translate-y-1/2 text-[10px] font-medium", theme === 'light' ? "text-black/30" : "text-white/30") }>
-            Positive
-          </div>
-          
-          {/* Negative zone indicator */}
-          <div className={cn("absolute left-0 right-0 top-3/4 h-px transform -translate-y-1/2", theme === 'light' ? "bg-black/5" : "bg-white/5")} />
-          <div className={cn("absolute left-2 top-3/4 transform -translate-y-1/2 text-[10px] font-medium", theme === 'light' ? "text-black/30" : "text-white/30") }>
-            Negative
-          </div>
-          
-          {/* Neutral zone indicator */}
-          <div className={cn("absolute left-2 top-1/2 transform -translate-y-1/2 text-[10px] font-medium", theme === 'light' ? "text-black/30" : "text-white/30") }>
-            Neutral
-          </div>
-        </div>
-        
-        {/* Mood particles */}
-        {React.useMemo(() => {
-          return Array.from({ length: Math.min(moodData.total, 30) }).map((_, i) => {
-            const sentiment = i < moodData.positive ? 'positive' : 
-                             i < moodData.positive + moodData.negative ? 'negative' : 'neutral';
-            const size = Math.random() * 4 + 2;
-            const x = Math.random() * 100;
-            
-            // Position particles based on sentiment zones
-            let y;
-            if (sentiment === 'positive') {
-              y = Math.random() * 25; // Top quarter (positive zone)
-            } else if (sentiment === 'negative') {
-              y = 75 + Math.random() * 25; // Bottom quarter (negative zone)
-            } else {
-              y = 37.5 + Math.random() * 25; // Middle half (neutral zone)
-            }
-            
-            return {
-              id: i,
-              sentiment,
-              size,
-              x,
-              y,
-              delay: i * 50 // Stagger delay in milliseconds
-            };
-          });
-        }, [moodData.total, moodData.positive, moodData.negative]).map((particle) => (
+      {/* Segmented view switch */}
+      <div className="flex justify-center mb-3">
+        <div
+          className={cn(
+            "relative inline-flex items-center w-56 h-9 rounded-full border text-xs font-medium",
+            theme === 'light' ? "border-black/20 bg-black/5" : "border-white/15 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-white/10"
+          )}
+          role="tablist"
+          aria-label="Analysis view"
+        >
           <div
-            key={particle.id}
-            className={cn(
-              "absolute rounded-full animate-pulse transition-all duration-1000 ease-out",
-              theme === 'light'
-                ? (particle.sentiment === 'positive' ? 'bg-black/80' : particle.sentiment === 'negative' ? 'bg-black/40' : 'bg-black/60')
-                : (particle.sentiment === 'positive' ? 'bg-white/70' : particle.sentiment === 'negative' ? 'bg-white/40' : 'bg-white/55')
-            )}
+            className="absolute top-1 bottom-1 rounded-full transition-all duration-300 ease-out"
             style={{
-              width: `${particle.size}px`,
-              height: `${particle.size}px`,
-              left: `${particle.x}%`,
-              top: `${particle.y}%`,
-              animationDelay: `${particle.delay}ms`,
-              animationDuration: `${6 + Math.random() * 4}s` // Slower: 6-10 seconds instead of 2-4
+              width: 'calc(50% - 8px)',
+              left: view === 'mood' ? 4 : 'calc(50% + 4px)',
+              backgroundColor: theme === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)',
+              boxShadow: theme === 'light' ? '0 1px 2px rgba(0,0,0,0.08)' : '0 1px 2px rgba(0,0,0,0.30)'
             }}
+            aria-hidden="true"
           />
-        ))}
-        
-        {/* Sentiment flow lines - Single lines for each section, no animation */}
-        <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="moodGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor={theme === 'light' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)'} />
-              <stop offset="50%" stopColor={theme === 'light' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.4)'} />
-              <stop offset="100%" stopColor={theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'} />
-            </linearGradient>
-          </defs>
-          
-          {/* Positive sentiment flow - straight line in positive zone */}
-          <line
-            x1="5"
-            y1="20"
-            x2="95"
-            y2="20"
-            stroke="url(#moodGradient)"
-            strokeWidth="1"
-            opacity="0.8"
-          />
-          
-          {/* Negative sentiment flow - straight line in negative zone */}
-          <line
-            x1="5"
-            y1="80"
-            x2="95"
-            y2="80"
-            stroke="url(#moodGradient)"
-            strokeWidth="1"
-            opacity="0.6"
-          />
-          
-          {/* Neutral sentiment flow - straight line through center */}
-          <line
-            x1="5"
-            y1="50"
-            x2="95"
-            y2="50"
-            stroke="url(#moodGradient)"
-            strokeWidth="0.8"
-            opacity="0.5"
-          />
-        </svg>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'mood'}
+            onClick={() => changeView('mood')}
+            className={cn(
+              "relative z-10 flex-1 h-full rounded-full transition-colors",
+              view === 'mood' ? (theme === 'light' ? "text-black" : "text-white") : (theme === 'light' ? "text-black/50" : "text-white/60")
+            )}
+          >
+            Mood
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'sources'}
+            onClick={() => changeView('sources')}
+            className={cn(
+              "relative z-10 flex-1 h-full rounded-full transition-colors",
+              view === 'sources' ? (theme === 'light' ? "text-black" : "text-white") : (theme === 'light' ? "text-black/50" : "text-white/60")
+            )}
+          >
+            Sources
+          </button>
+        </div>
+      </div>
+
+      <div className="text-center mb-4">
+        {view === 'mood' ? (
+          <>
+            <h3 className="text-white/80 text-sm font-medium uppercase tracking-wider mb-1">News Mood Analysis</h3>
+            <div className="text-white/40 text-xs">{moodData.total} stories analyzed • Real-time sentiment tracking</div>
+          </>
+        ) : (
+          <>
+            <h3 className="text-white/80 text-sm font-medium uppercase tracking-wider mb-1">Source Breakdown</h3>
+            <div className="text-white/40 text-xs">{sourcesData.total} stories • {sourcesData.unique} sources</div>
+          </>
+        )}
       </div>
       
-      {/* Sentiment breakdown */}
-      <div className="flex justify-center items-center gap-12 text-sm">
-        <div className="text-center">
-          <div className="text-white/90 font-semibold text-lg">{moodData.positive}</div>
-          <div className="text-white/50 text-xs uppercase tracking-wider">Positive</div>
-          <div className="text-white/30 text-xs">{positivePercent.toFixed(1)}%</div>
+      <div className={cn("grid grid-cols-1 grid-rows-1", isSwitching ? "view-switching" : "") } style={{ minHeight: containerMinHeight ? `${containerMinHeight}px` : undefined, contain: 'layout paint style' }}>
+        {/* Mood view */}
+        <div ref={moodRef} className={cn(
+          "col-start-1 row-start-1 transition-opacity duration-300 ease-out pb-0.5",
+          view === 'mood' ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}>
+          {/* Monochrome horizontal stacked bar */}
+          <div className="mx-auto w-full max-w-xl mb-6">
+            <div className="relative h-4 rounded-full overflow-hidden" style={{ backgroundColor: colorTrack }}>
+              <div className="absolute left-0 top-0 h-full mood-shimmer" style={{ width: `${positivePercent}%`, backgroundColor: colorStrong }} />
+              <div className="absolute top-0 h-full mood-shimmer" style={{ left: `${positivePercent}%`, width: `${neutralPercent}%`, backgroundColor: colorMid }} />
+              <div className="absolute right-0 top-0 h-full mood-shimmer" style={{ width: `${negativePercent}%`, backgroundColor: colorSoft }} />
+            </div>
+            <div className="mt-2 flex justify-between text-[11px] text-white/60">
+              <span>Positive {positivePercent.toFixed(0)}%</span>
+              <span>Neutral {neutralPercent.toFixed(0)}%</span>
+              <span>Negative {negativePercent.toFixed(0)}%</span>
+            </div>
+          </div>
+
+          {/* Sentiment breakdown */}
+          <div className="flex justify-center items-center gap-10 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorStrong }} />
+              <div className="text-white/80">{moodData.positive}</div>
+              <div className="text-white/40 text-xs">({positivePercent.toFixed(1)}%)</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorMid }} />
+              <div className="text-white/80">{moodData.neutral}</div>
+              <div className="text-white/40 text-xs">({neutralPercent.toFixed(1)}%)</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorSoft }} />
+              <div className="text-white/80">{moodData.negative}</div>
+              <div className="text-white/40 text-xs">({negativePercent.toFixed(1)}%)</div>
+            </div>
+          </div>
         </div>
-        <div className="text-center">
-          <div className="text-white/90 font-semibold text-lg">{moodData.neutral}</div>
-          <div className="text-white/50 text-xs uppercase tracking-wider">Neutral</div>
-          <div className="text-white/30 text-xs">{neutralPercent.toFixed(1)}%</div>
-        </div>
-        <div className="text-center">
-          <div className="text-white/90 font-semibold text-lg">{moodData.negative}</div>
-          <div className="text-white/50 text-xs uppercase tracking-wider">Negative</div>
-          <div className="text-white/30 text-xs">{negativePercent.toFixed(1)}%</div>
+
+        {/* Sources view */}
+        <div ref={sourcesRef} className={cn(
+          "col-start-1 row-start-1 transition-opacity duration-300 ease-out pb-0.5",
+          view === 'sources' ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}>
+          <div className="mx-auto w-full max-w-xl space-y-3">
+            {sourcesData.list.map((s) => (
+              <div key={s.name}>
+                <div className="flex items-end justify-between mb-1">
+                  <div className="text-[12px] text-white/80 truncate pr-2">{s.name}</div>
+                  <div className="text-[11px] text-white/50 tabular-nums">{s.percent.toFixed(0)}%</div>
+                </div>
+                <div className="relative h-3 rounded-full overflow-hidden" style={{ backgroundColor: colorTrack }}>
+                  <div className="absolute left-0 top-0 h-full mood-shimmer" style={{ width: `${s.percent}%`, backgroundColor: colorStrong }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
