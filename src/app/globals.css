@@ -2,21 +2,23 @@
 
 :root {
   --background: #0b0b0b;
-  --foreground: #ffffff;
+  --foreground: rgba(255,255,255,0.92);
   --surface: rgba(255,255,255,0.06);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
 }
 
 /* Light/Dark theme via data-theme attribute for smooth control */
 [data-theme="dark"] {
   --background: #0b0b0b;
-  --foreground: #ffffff;
+  --foreground: rgba(255,255,255,0.92);
   --surface: rgba(255,255,255,0.06);
 }
 
@@ -28,7 +30,7 @@
 }
 
 /* Light theme overrides for utility classes hardcoded in components */
-[data-theme="light"] .text-white { color: var(--foreground) !important; }
+[data-theme="light"] .text-white { color: rgba(16,17,20,0.92) !important; }
 [data-theme="light"] .text-black { color: var(--foreground) !important; }
 [data-theme="light"] .bg-black { background-color: var(--background) !important; }
 
@@ -76,7 +78,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   transition: background-color 360ms ease, color 360ms ease;
 }
 

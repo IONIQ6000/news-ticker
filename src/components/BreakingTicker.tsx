@@ -23,15 +23,15 @@ export function BreakingTicker({ className }: { className?: string }) {
   const [items, setItems] = React.useState<NewsItem[]>([]);
   const [buffer, setBuffer] = React.useState<NewsItem[]>([]);
   const [isFetching, setIsFetching] = React.useState<boolean>(false);
-  const [lastFetchedAt, setLastFetchedAt] = React.useState<string>("");
-  const trackRef = React.useRef<HTMLDivElement | null>(null);
   const sequenceRef = React.useRef<HTMLDivElement | null>(null);
   const [isReady, setIsReady] = React.useState(false);
   const [isVisible, setIsVisible] = React.useState(false);
   const [distancePx, setDistancePx] = React.useState<number>(0);
   const [cycleKey, setCycleKey] = React.useState<number>(0);
   const { breakingSpeed } = useSettings();
-  const FRESH_MS = 60 * 60 * 1000; // consider items fresh if within the last 60 minutes
+  const FRESH_MS = 60 * 60 * 1000;
+  const MIN_UNIQUE = 8;
+  const lastFetchedRef = React.useRef<NewsItem[]>([]);
 
   const getPublishedAtMs = React.useCallback((n: NewsItem): number => {
     if (!n.publishedAt) return 0;
@@ -43,71 +43,165 @@ export function BreakingTicker({ className }: { className?: string }) {
     const ts = getPublishedAtMs(n);
     if (!ts) return false;
     return Date.now() - ts <= FRESH_MS;
-  }, [getPublishedAtMs]);
+  }, [getPublishedAtMs, FRESH_MS]);
 
-  // Fetch new items periodically, but do not reset UI; push to buffer
+  const normalizeTitle = React.useCallback((t: string): string => {
+    const s = (t || "")
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+      // strip common site suffixes
+      .replace(/\s*[-|–—:]\s*[^\s].*$/u, "")
+      .toLowerCase()
+      .replace(/[“”"'’]+/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    return s;
+  }, []);
+
+  const getKey = React.useCallback((n: NewsItem): string => {
+    return normalizeTitle(n.title || "");
+  }, [normalizeTitle]);
+
   const fetchBreaking = React.useCallback(async () => {
-    if (isFetching) return;
+    // Window-scoped dedupe to avoid bursts from multiple instances/HMR
+    const w = typeof window !== 'undefined' ? (window as unknown as { __breakingFetch?: { inFlight: boolean; lastAt: number } }) : undefined;
+    if (w && !w.__breakingFetch) w.__breakingFetch = { inFlight: false, lastAt: 0 };
+    const now = Date.now();
+    if (w && w.__breakingFetch) {
+      if (w.__breakingFetch.inFlight) return;
+      if (now - w.__breakingFetch.lastAt < 5_000) return;
+      w.__breakingFetch.inFlight = true;
+    } else {
+      if (isFetching) return;
+    }
     try {
       setIsFetching(true);
-      const res = await fetch("/api/breaking", { next: { revalidate: 120 } });
+      const res = await fetch("/api/breaking", {
+        // Use default browser cache with ETag support
+        cache: "default",
+        headers: {
+          // Avoid Next's RSC cache; rely on our route cache + browser cache
+          "pragma": "no-cache",
+          "cache-control": "no-cache",
+        },
+      });
       if (!res.ok) throw new Error(String(res.status));
       const data: ApiResponse = await res.json();
-      setLastFetchedAt(data.lastUpdated);
-
-      // Freshness gate + dedupe against current session
+      lastFetchedRef.current = data.items || [];
+      // Build robust de-dup set using normalized title-only key
       const existingKeys = new Set<string>([
-        ...items.map((n) => `${n.source}:${n.title}`),
-        ...buffer.map((n) => `${n.source}:${n.title}`),
+        ...items.map((n) => getKey(n)),
+        ...buffer.map((n) => getKey(n)),
       ]);
 
-      const incomingFresh = data.items
-        .filter(isFresh)
-        .filter((n) => !existingKeys.has(`${n.source}:${n.title}`));
+      // Unique incoming (prefer first occurrence) and fresh-first
+      const seenIncoming = new Set<string>();
+      const incomingUnique = (data.items || []).filter((n) => {
+        const k = getKey(n);
+        if (!k) return false;
+        if (seenIncoming.has(k)) return false;
+        seenIncoming.add(k);
+        return true;
+      });
+
+      const incomingFresh = incomingUnique.filter(isFresh).filter((n) => !existingKeys.has(getKey(n)));
 
       if (incomingFresh.length) {
         setBuffer((prev) => {
-          // keep only fresh items in buffer, then append new fresh
           const kept = prev.filter(isFresh);
           return [...kept, ...incomingFresh];
         });
-        // If ticker hasn't primed yet, prime immediately with whatever we have
         if (!isReady && items.length === 0) {
           const take = Math.min(20, incomingFresh.length);
           setItems(incomingFresh.slice(0, take));
           setBuffer((prev) => prev.slice(take));
         }
       }
+
+      // Ensure we keep a minimum variety in items; if too few, backfill with non-fresh unique from last fetch
+      const ensureMinimumVariety = () => {
+        setItems((prev) => {
+          const currentKeys = new Set(prev.map(getKey));
+          if (currentKeys.size >= MIN_UNIQUE) return prev;
+          const candidates = lastFetchedRef.current
+            .filter((n) => !!getKey(n))
+            .filter((n) => !currentKeys.has(getKey(n)));
+          if (candidates.length === 0) return prev;
+          const needed = MIN_UNIQUE - currentKeys.size;
+          const toAdd = candidates.slice(0, Math.max(0, needed));
+          return [...prev, ...toAdd];
+        });
+      };
+
+      ensureMinimumVariety();
     } catch {
-      // ignore errors silently for this lightweight banner
     } finally {
       setIsFetching(false);
+      if (w && w.__breakingFetch) {
+        w.__breakingFetch.lastAt = Date.now();
+        w.__breakingFetch.inFlight = false;
+      }
     }
   }, [isFetching, items, buffer, isReady, isFresh]);
 
-  // Initial fetch and interval
   React.useEffect(() => {
-    fetchBreaking();
-    const id = setInterval(fetchBreaking, 90_000);
-    return () => clearInterval(id);
+    let scheduled = false;
+    const tick = async () => {
+      if (scheduled) return;
+      scheduled = true;
+      try { await fetchBreaking(); } finally { scheduled = false; }
+    };
+    const start = () => {
+      void tick();
+      const w = window as unknown as { __breakingPollId?: number };
+      if (!w.__breakingPollId) {
+        w.__breakingPollId = window.setInterval(tick, 180_000);
+      }
+    };
+    const stop = () => {
+      const w = window as unknown as { __breakingPollId?: number };
+      if (w.__breakingPollId) {
+        clearInterval(w.__breakingPollId);
+        w.__breakingPollId = undefined;
+      }
+      scheduled = false;
+    };
+    if (typeof document !== 'undefined') {
+      if (document.visibilityState === 'visible') start();
+      const onVis = () => { if (document.visibilityState === 'visible') start(); else stop(); };
+      document.addEventListener('visibilitychange', onVis);
+      return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
+    }
+    start();
+    return () => stop();
   }, [fetchBreaking]);
 
-  // Prime items as soon as anything is available; do not render ticker until measured
   React.useEffect(() => {
     if (isReady) return;
     if (items.length === 0) {
       const freshBuffer = buffer.filter(isFresh);
+      let seed: NewsItem[] = [];
       if (freshBuffer.length >= 1) {
         const take = Math.min(20, freshBuffer.length);
-        setItems(freshBuffer.slice(0, take));
-        // remove taken items by identity
-        const takenIds = new Set(freshBuffer.slice(0, take).map(n => n.id));
+        seed = freshBuffer.slice(0, take);
+        const takenIds = new Set(seed.map(n => n.id));
         setBuffer((prev) => prev.filter(n => !takenIds.has(n.id)));
+      } else if (lastFetchedRef.current.length) {
+        // Fallback: seed from last fetched unique items even if not fresh
+        const seen = new Set<string>();
+        for (const n of lastFetchedRef.current) {
+          const k = getKey(n);
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          seed.push(n);
+          if (seed.length >= MIN_UNIQUE) break;
+        }
       }
+      if (seed.length) setItems(seed);
     }
   }, [buffer, items.length, isReady, isFresh]);
 
-  // Measure sequence width and mark ready, then fade in
   React.useEffect(() => {
     if (isReady) return;
     if (items.length === 0) return;
@@ -116,45 +210,64 @@ export function BreakingTicker({ className }: { className?: string }) {
       if (width > 0) {
         setDistancePx(Math.ceil(width));
         setIsReady(true);
-        // restart animation with measured distance
         setCycleKey(Date.now());
-        // fade-in next frame
         requestAnimationFrame(() => setIsVisible(true));
       }
     });
     return () => cancelAnimationFrame(r);
   }, [items, isReady]);
 
-  // At iteration boundaries, append from buffer and remesure to avoid speed creep
   const handleIteration = React.useCallback(() => {
-    // Move a few new items in, drop a few old to keep list length bounded
     const freshBuffer = buffer.filter(isFresh);
     if (freshBuffer.length > 0) {
       const toShift = Math.min(6, freshBuffer.length);
       setItems((prev) => {
-        const next = [...prev, ...freshBuffer.slice(0, toShift)];
-        // keep last N to cap width growth
-        const capped = next.slice(-200);
-        return capped;
+        const merged = [...prev, ...freshBuffer.slice(0, toShift)];
+        // Deduplicate by normalized key while preserving order and cap size
+        const seen = new Set<string>();
+        const deduped: NewsItem[] = [];
+        for (const n of merged) {
+          const k = getKey(n);
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          deduped.push(n);
+        }
+        return deduped.slice(-200);
       });
-      // remove the ones we appended from buffer by identity
       const takenIds = new Set(freshBuffer.slice(0, toShift).map(n => n.id));
       setBuffer((prev) => prev.filter(n => !takenIds.has(n.id)));
+    } else {
+      // If buffer empty and variety too small, backfill from last fetch
+      setItems((prev) => {
+        const currentKeys = new Set(prev.map(getKey));
+        if (currentKeys.size >= MIN_UNIQUE) return prev;
+        const add: NewsItem[] = [];
+        for (const n of lastFetchedRef.current) {
+          const k = getKey(n);
+          if (!k || currentKeys.has(k)) continue;
+          currentKeys.add(k);
+          add.push(n);
+          if (currentKeys.size >= MIN_UNIQUE) break;
+        }
+        return add.length ? [...prev, ...add] : prev;
+      });
     }
 
-    // Recalculate width for next cycle
     requestAnimationFrame(() => {
       const width = sequenceRef.current?.getBoundingClientRect().width || 0;
       if (width > 0) {
         setDistancePx(Math.ceil(width));
-        // Bump key so the next cycle uses the new distance exactly
         setCycleKey(Date.now());
       }
     });
-  }, [buffer]);
+  }, [buffer, isFresh]);
 
-  const baseDurationSec = 140; // default speed
-  const durationSec = baseDurationSec / Math.max(0.5, Math.min(3, breakingSpeed));
+  // Compute duration from measured distance to keep constant px/s regardless of content width
+  const basePxPerSec = 60; // adjust for global speed baseline
+  const speedFactor = Math.max(0.5, Math.min(3, breakingSpeed));
+  const durationSec = distancePx > 0
+    ? distancePx / (basePxPerSec * speedFactor)
+    : 140 / speedFactor;
   const rowStyle: React.CSSProperties & { ['--distance']?: string } = {
     animation: `breaking-left ${durationSec}s linear infinite`,
     minWidth: "max-content",
@@ -164,17 +277,16 @@ export function BreakingTicker({ className }: { className?: string }) {
   };
 
   return (
-    <div className={cn("w-full bg-black text-white border-b border-white/10 font-mono", className)}>
+    <div className={cn("w-full bg-black text_white border-b border-white/10", className)}>
       <div className="mx-auto max-w-full">
-        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 pt-1.5 sm:pt-2 text-[9px] sm:text-[10px] uppercase tracking-wider text-white/50">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-3 px-2.5 sm:px-4 pt-1.5 sm:pt-2 text-[9px] sm:text-[10px] uppercase tracking-wider text-white/50">
           <span className="text-white/70">Global Breaking Headlines</span>
-          <span className="hidden md:inline text-white/30">•</span>
+          <span className="hidden md:inline text_white/30">•</span>
           <span className="hidden md:inline text-white/40">Live, continuous scroll</span>
         </div>
-        {/* Placeholder until ready */}
         {!isReady && (
           <div className="px-3 sm:px-4 py-2 sm:py-3">
-            <div className="w-full rounded bg-white/5 border border-white/10 px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between">
+            <div className="w-full rounded bg-white/5 border border_white/10 px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between">
               <div className="flex items-center gap-2 sm:gap-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />
                 <span className="inline-flex items-center rounded bg-white/20 px-2 py-0.5 text-[9px] sm:text-[10px] uppercase tracking-wide text-white/90">Live Breaking</span>
@@ -186,23 +298,21 @@ export function BreakingTicker({ className }: { className?: string }) {
             </div>
           </div>
         )}
-        {/* Hidden measurement sequence (always mounted) */}
         <div className="absolute opacity-0 pointer-events-none -z-10" aria-hidden>
           <div ref={sequenceRef} className="flex whitespace-nowrap">
             {items.map((item, idx) => (
-              <span key={`m-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3 text-sm md:text-lg font-semibold">
+              <span key={`m-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-2.5 px-2.5 md:px-4 py-2 md:py-3 text-sm md:text-lg font-semibold">
                 {item.source ? (
                   <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[9px] md:text-[10px] uppercase tracking-wide">
                     {item.source}
                   </span>
                 ) : null}
-                <span className="text-white/60">{item.title}</span>
-                <span className="mx-2 md:mx-3 text-white/30">•</span>
+                <span className="mx-1.5 text-white/30">•</span>
+                <span className="text-white/60 whitespace-nowrap">{item.title}</span>
               </span>
             ))}
           </div>
         </div>
-        {/* Ticker (hidden until fully measured and then fades in) */}
         {isReady && (
           <div className={cn(
             "relative overflow-hidden transition-all duration-1000 ease-out",
@@ -210,47 +320,45 @@ export function BreakingTicker({ className }: { className?: string }) {
           )}>
             <div
               key={cycleKey}
-              ref={trackRef}
               className="flex whitespace-nowrap"
               style={rowStyle}
               onAnimationIteration={handleIteration}
             >
-              {/* duplicate sequence for seamless loop */}
               <div className="flex">
                 {items.map((item, idx) => (
-                  <span key={`a-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3 text-sm md:text-lg font-semibold">
+                  <span key={`a-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-2.5 px-2.5 md:px-4 py-2 md:py-3 text-sm md:text-lg font-semibold">
                     {item.source ? (
                       <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[9px] md:text-[10px] uppercase tracking-wide">
                         {item.source}
                       </span>
                     ) : null}
+                    <span className="mx-1.5 text-white/30">•</span>
                     {item.url === "#" ? (
-                      <span className="text-white/60">{item.title}</span>
+                      <span className="text_white/60 whitespace-nowrap">{item.title}</span>
                     ) : (
-                      <Link href={item.url} target="_blank" className="hover:underline">
+                      <Link href={item.url} target="_blank" className="hover:underline whitespace-nowrap">
                         {item.title}
                       </Link>
                     )}
-                    <span className="mx-2 md:mx-3 text-white/30">•</span>
                   </span>
                 ))}
               </div>
               <div className="flex">
                 {items.map((item, idx) => (
-                  <span key={`b-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2 md:py-3 text-sm md:text-lg font-semibold">
+                  <span key={`b-${item.id}-${idx}`} className="flex items-center gap-2 md:gap-2.5 px-2.5 md:px-4 py-2 md:py-3 text-sm md:text-lg font-semibold">
                     {item.source ? (
                       <span className="inline-flex items-center rounded bg-white/15 px-2 py-0.5 text-[9px] md:text-[10px] uppercase tracking-wide">
                         {item.source}
                       </span>
                     ) : null}
+                    <span className="mx-1.5 text-white/30">•</span>
                     {item.url === "#" ? (
-                      <span className="text-white/60">{item.title}</span>
+                      <span className="text_white/60 whitespace-nowrap">{item.title}</span>
                     ) : (
-                      <Link href={item.url} target="_blank" className="hover:underline">
+                      <Link href={item.url} target="_blank" className="hover:underline whitespace-nowrap">
                         {item.title}
                       </Link>
                     )}
-                    <span className="mx-2 md:mx-3 text-white/30">•</span>
                   </span>
                 ))}
               </div>
@@ -259,7 +367,6 @@ export function BreakingTicker({ className }: { className?: string }) {
         )}
       </div>
 
-      {/* keyframes */}
       <style jsx>{`
         @keyframes breaking-left {
           0% { transform: translateX(0); }
@@ -270,4 +377,4 @@ export function BreakingTicker({ className }: { className?: string }) {
   );
 }
 
-
+export default BreakingTicker;

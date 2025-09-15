@@ -1,5 +1,6 @@
 import Parser from "rss-parser";
 import { NEWS_CONFIG, discoverFeedsForTopic, getFallbackFeeds } from "@/lib/config";
+import { createHeartbeatCache, getGlobalHeartbeatCache, setGlobalHeartbeatCache } from "@/lib/heartbeat";
 
 type FeedItem = {
   title: string;
@@ -20,29 +21,29 @@ type NewsItem = {
 
 const parser = new Parser<unknown, FeedItem>({ timeout: 15_000 });
 
-// Next.js requires a static number here; keep in sync with NEWS_CONFIG.cacheTime
-export const revalidate = 600;
+// Disable ISR here; rely on our heartbeat cache based on NEWS_CONFIG.cacheTime
+export const revalidate = 0;
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const rawTopic = (searchParams.get("topic") || "").trim();
-  const topic = rawTopic || NEWS_CONFIG.topic;
-  
+type NewsPayload = {
+  topic: string;
+  items: NewsItem[];
+  totalFeeds: number;
+  lastUpdated: string;
+  feedDiscoveryMethod?: string;
+};
+
+async function fetchNewsUpstream(topic: string): Promise<NewsPayload> {
   // Dynamically discover feeds for the topic
-  let rssUrls: Array<{url: string, source: string}> = [];
-  
+  let rssUrls: Array<{ url: string; source: string }> = [];
+
   try {
-    console.log(`Discovering feeds for topic: ${topic}`);
     rssUrls = await discoverFeedsForTopic(topic);
-    console.log(`Discovered ${rssUrls.length} feeds for topic: ${topic}`);
   } catch (error) {
     console.error("Feed discovery failed, using fallback feeds:", error);
     rssUrls = getFallbackFeeds();
   }
-  
-  // If no feeds were discovered, use fallbacks
+
   if (rssUrls.length === 0) {
-    console.log("No feeds discovered, using fallback feeds");
     rssUrls = getFallbackFeeds();
   }
 
@@ -53,33 +54,58 @@ export async function GET(req: Request) {
         const items: NewsItem[] = (feed.items || [])
           .filter((item) => {
             if (!item.title) return false;
-            
+
             const title = item.title.toLowerCase();
             const content = (item.contentSnippet || item.content || "").toLowerCase();
             const searchText = `${title} ${content}`;
-            
+
             // Enhanced topic matching for better compatibility
             const normalizedTopic = topic.toLowerCase();
-            const topicWords = normalizedTopic.split(/\s+/).filter(word => word.length > 2);
-            
-            // Check if any topic word appears in the content
-            const hasTopicMatch = topicWords.some(word => 
-              searchText.includes(word)
-            );
-            
-            // For gaming topics, also check for related terms
+            const topicWords = normalizedTopic.split(/\s+/).filter((word) => word.length > 2);
+
+            const hasTopicMatch = topicWords.some((word) => searchText.includes(word));
+
             if (normalizedTopic.includes("gaming") || normalizedTopic.includes("game")) {
-              const gamingTerms = ["game", "gaming", "console", "pc", "mobile", "indie", "studio", "developer", "release", "update", "patch", "dlc", "expansion", "sequel", "remake", "remaster", "beta", "alpha", "early access", "steam", "playstation", "xbox", "nintendo", "switch", "ps5", "xbox series", "pc gaming", "vr", "virtual reality", "streaming", "twitch", "youtube gaming"];
-              const hasGamingMatch = gamingTerms.some(term => searchText.includes(term));
+              const gamingTerms = [
+                "game",
+                "gaming",
+                "console",
+                "pc",
+                "mobile",
+                "indie",
+                "studio",
+                "developer",
+                "release",
+                "update",
+                "patch",
+                "dlc",
+                "expansion",
+                "sequel",
+                "remake",
+                "remaster",
+                "beta",
+                "alpha",
+                "early access",
+                "steam",
+                "playstation",
+                "xbox",
+                "nintendo",
+                "switch",
+                "ps5",
+                "xbox series",
+                "pc gaming",
+                "vr",
+                "virtual reality",
+                "streaming",
+                "twitch",
+                "youtube gaming",
+              ];
+              const hasGamingMatch = gamingTerms.some((term) => searchText.includes(term));
               if (hasGamingMatch) return true;
             }
-            
-            // If topic words found, include the item
+
             if (hasTopicMatch) return true;
-            
-            // For broader coverage, include some general news items even without topic match
-            // This ensures we always have content while prioritizing topic-relevant items
-            return Math.random() < 0.3; // Include 30% of non-matching items for variety
+            return Math.random() < 0.3;
           })
           .slice(0, NEWS_CONFIG.maxItemsPerFeed)
           .map((item, idx) => ({
@@ -106,35 +132,66 @@ export async function GET(req: Request) {
     return true;
   });
 
-  // Sort by relevance and popularity, then take top articles for consistent ticker speed
   unique.sort((a, b) => {
-    // First priority: topic relevance (exact matches first)
     const aTitle = a.title.toLowerCase();
     const bTitle = b.title.toLowerCase();
     const topicLower = topic.toLowerCase();
-    
+
     const aExactMatch = aTitle.includes(topicLower);
     const bExactMatch = bTitle.includes(topicLower);
-    
+
     if (aExactMatch && !bExactMatch) return -1;
     if (!aExactMatch && bExactMatch) return 1;
-    
-    // Second priority: recency (newer articles first)
+
     const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
     const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
     return db - da;
   });
 
-  // Take top articles to ensure consistent ticker speed
   const topArticles = unique.slice(0, 100);
 
-  return Response.json({
+  return {
     topic,
     items: topArticles,
     totalFeeds: rssUrls.length,
     lastUpdated: new Date().toISOString(),
-    feedDiscoveryMethod: rssUrls.length > 0 ? "dynamic" : "fallback"
-  });
+    feedDiscoveryMethod: rssUrls.length > 0 ? "dynamic" : "fallback",
+  };
+}
+
+function getCacheForTopic(topic: string) {
+  const key = `news.v1:${topic.toLowerCase()}`;
+  const existing = getGlobalHeartbeatCache<NewsPayload>(key);
+  if (existing) return existing;
+  const cache = createHeartbeatCache<NewsPayload>(
+    async () => await fetchNewsUpstream(topic),
+    {
+      ttlMs: Math.max(NEWS_CONFIG.cacheTime, 60) * 1000, // at least 60s
+      minHeartbeatMs: Math.min(NEWS_CONFIG.refreshInterval, 45_000),
+      maxRefreshMs: 25_000,
+    }
+  );
+  setGlobalHeartbeatCache(key, cache);
+  return cache;
+}
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const rawTopic = (searchParams.get("topic") || "").trim();
+  const topic = rawTopic || NEWS_CONFIG.topic;
+
+  const cache = getCacheForTopic(topic);
+  const state = await cache.get(true);
+
+  if (!state.value) {
+    const refreshed = await cache.forceRefresh();
+    if (refreshed.value) {
+      return Response.json(refreshed.value);
+    }
+    return Response.json({ topic, items: [], totalFeeds: 0, lastUpdated: new Date().toISOString(), feedDiscoveryMethod: "fallback" });
+  }
+
+  return Response.json(state.value);
 }
 
 

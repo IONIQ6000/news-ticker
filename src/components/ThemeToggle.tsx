@@ -8,6 +8,8 @@ export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useSettings();
 
   const next = theme === "dark" ? "light" : "dark";
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => { setMounted(true); }, []);
 
   return (
     <button
@@ -34,35 +36,39 @@ export function ThemeToggle({ className }: { className?: string }) {
         )}
       />
       {/* icons (monochrome) */}
-      <div className={cn("absolute inset-0 flex items-center justify-between px-1", theme === "dark" ? "text-white/80" : "text-black/80")}> 
-        {/* moon */}
-        <svg
-          className={cn("h-3.5 w-3.5 transition-opacity duration-500", theme === "dark" ? "opacity-80" : "opacity-30")}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-        </svg>
-        {/* sun */}
-        <svg
-          className={cn("h-3.5 w-3.5 transition-opacity duration-500", theme === "light" ? "opacity-80" : "opacity-30")}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-        </svg>
-      </div>
+      {mounted && (
+        <div className={cn("absolute inset-0 flex items-center justify-between px-1", theme === "dark" ? "text-white/80" : "text-black/80")}>
+          {/* moon */}
+          <svg
+            suppressHydrationWarning
+            className={cn("h-3.5 w-3.5 transition-opacity duration-500", theme === "dark" ? "opacity-80" : "opacity-30")}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+          {/* sun */}
+          <svg
+            suppressHydrationWarning
+            className={cn("h-3.5 w-3.5 transition-opacity duration-500", theme === "light" ? "opacity-80" : "opacity-30")}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+          </svg>
+        </div>
+      )}
     </button>
   );
 }

@@ -84,6 +84,23 @@ export const NEWS_CONFIG = {
 };
 ```
 
+## UI Transition Policy (Do Not Change)
+
+This project standardizes on a single visual language for content changes:
+
+- Topic change and data refresh use the SAME transition.
+- Behavior: rows fade out together over `TOPIC_FADE_MS`, swap data, then stagger back in.
+- Do NOT introduce global black fades, overlay crossfades, or double-rendered layers during refresh.
+- Rationale: avoids flicker/black frames and prevents duplicate content during transitions.
+
+Reference implementation lives in `src/components/NewsTicker.tsx`:
+
+- The refresh handler explicitly sets all `tickerStates` to `false` to fade out.
+- After `TOPIC_FADE_MS`, it swaps in the new data, then calls `triggerStaggeredAnimations()` to fade-in rows.
+- Auto refresh follows the same pattern but skips fade if content didn’t change.
+
+If you need to tune the timing, update `TOPIC_FADE_MS` so both topic and refresh stay in sync.
+
 ## Troubleshooting
 
 ### No News Appearing

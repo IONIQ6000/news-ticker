@@ -1,4 +1,6 @@
 import Parser from "rss-parser";
+import { createHeartbeatCache, getGlobalHeartbeatCache, setGlobalHeartbeatCache } from "@/lib/heartbeat";
+import crypto from "crypto";
 
 type FeedItem = {
   title: string;
@@ -17,7 +19,8 @@ type NewsItem = {
 
 const parser = new Parser<unknown, FeedItem>({ timeout: 15_000 });
 
-export const revalidate = 120;
+// Disable Next route-level ISR caching; rely on our heartbeat cache instead
+export const revalidate = 0;
 
 const BREAKING_FEEDS: Array<{ url: string; source: string }> = [
   { url: "https://feedx.net/rss/ap.xml", source: "AP" },
@@ -27,7 +30,13 @@ const BREAKING_FEEDS: Array<{ url: string; source: string }> = [
   { url: "https://time.com/feed/", source: "TIME" },
 ];
 
-export async function GET() {
+type BreakingPayload = {
+  items: NewsItem[];
+  totalFeeds: number;
+  lastUpdated: string;
+};
+
+async function fetchBreakingUpstream(): Promise<BreakingPayload> {
   const results = await Promise.all(
     BREAKING_FEEDS.map(async ({ url, source }) => {
       try {
@@ -64,10 +73,77 @@ export async function GET() {
     return db - da;
   });
 
-  return Response.json({
+  return {
     items: unique.slice(0, 150),
     totalFeeds: BREAKING_FEEDS.length,
     lastUpdated: new Date().toISOString(),
+  };
+}
+
+const CACHE_KEY = "breaking.v1";
+function getCache() {
+  const existing = getGlobalHeartbeatCache<BreakingPayload>(CACHE_KEY);
+  if (existing) return existing;
+  const cache = createHeartbeatCache<BreakingPayload>(
+    async () => await fetchBreakingUpstream(),
+    {
+      // Serve cached responses for up to 3 minutes; refresh in background after TTL
+      ttlMs: 180_000,
+      // Ensure at least 90s between upstream refreshes even if many requests arrive
+      minHeartbeatMs: 90_000,
+      // Bound any single refresh duration
+      maxRefreshMs: 20_000,
+    }
+  );
+  setGlobalHeartbeatCache(CACHE_KEY, cache);
+  return cache;
+}
+
+export async function GET(req: Request) {
+  const cache = getCache();
+  const state = await cache.get(true);
+
+  const makeEtag = (p: BreakingPayload) => {
+    const basis = p.items.map(i => `${i.source}:${i.title}`).join("|");
+    return 'W/"' + crypto.createHash("sha1").update(basis).digest("hex") + '"';
+  };
+
+  const payload = state.value ?? (await cache.forceRefresh()).value;
+  if (!payload) {
+    const fallback = { items: [], totalFeeds: BREAKING_FEEDS.length, lastUpdated: new Date().toISOString() } satisfies BreakingPayload;
+    return new Response(JSON.stringify(fallback), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=60",
+      },
+    });
+  }
+
+  const etag = makeEtag(payload);
+
+  // Conditional request handling – return 304 if unchanged
+  try {
+    const ifNoneMatch = req.headers.get("if-none-match");
+    if (ifNoneMatch && ifNoneMatch === etag) {
+      return new Response(null, {
+        status: 304,
+        headers: {
+          "ETag": etag,
+          "Cache-Control": "public, max-age=60",
+        },
+      });
+    }
+  } catch {}
+
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "ETag": etag,
+      // Encourage browser caching for short time to reduce calls from a single client
+      "Cache-Control": "public, max-age=60",
+    },
   });
 }
 
