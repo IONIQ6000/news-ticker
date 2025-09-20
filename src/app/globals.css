@@ -86,6 +86,57 @@ body {
 html, body {
   max-width: 100%;
   overflow-x: hidden;
+  width: 100%;
+  position: relative;
+}
+
+/* iOS Safari specific fixes */
+html {
+  -webkit-overflow-scrolling: touch;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Ensure all containers respect viewport width */
+* {
+  box-sizing: border-box;
+}
+
+/* Prevent horizontal overflow on all elements */
+* {
+  max-width: 100%;
+}
+
+/* Specifically target ticker containers */
+[class*="ticker"], 
+[class*="overflow"], 
+.whitespace-nowrap {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* iOS Safari specific viewport fixes */
+@supports (-webkit-touch-callout: none) {
+  html, body {
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+    overflow-x: hidden !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+  
+  /* Prevent horizontal bounce and ensure proper containment */
+  body {
+    position: relative;
+    width: 100%;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Ensure all containers respect viewport bounds */
+  * {
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+  }
 }
 
 /* Keyframes for ultra-slow marquee animations used by NewsTicker */

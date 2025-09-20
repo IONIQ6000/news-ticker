@@ -277,8 +277,8 @@ export function BreakingTicker({ className }: { className?: string }) {
   };
 
   return (
-    <div className={cn("w-full bg-black text_white border-b border-white/10", className)}>
-      <div className="mx-auto max-w-full">
+    <div className={cn("w-full bg-black text_white border-b border-white/10 overflow-hidden", className)} style={{ maxWidth: '100vw' }}>
+      <div className="mx-auto max-w-full overflow-hidden" style={{ maxWidth: '100vw' }}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-3 px-2.5 sm:px-4 pt-1.5 sm:pt-2 text-[9px] sm:text-[10px] uppercase tracking-wider text-white/50">
           <span className="text-white/70">Global Breaking Headlines</span>
           <span className="hidden md:inline text_white/30">•</span>
@@ -317,7 +317,7 @@ export function BreakingTicker({ className }: { className?: string }) {
           <div className={cn(
             "relative overflow-hidden transition-all duration-1000 ease-out",
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-          )}>
+          )} style={{ maxWidth: '100vw' }}>
             <div
               key={cycleKey}
               className="flex whitespace-nowrap"

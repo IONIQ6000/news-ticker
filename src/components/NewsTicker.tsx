@@ -424,7 +424,7 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
   };
 
   return (
-    <div className={cn("w-full overflow-hidden bg-black text-white", className)}>
+    <div className={cn("w-full overflow-hidden bg-black text-white", className)} style={{ maxWidth: '100vw', overflowX: 'hidden' }}>
       {isLoading && (
         <div className="space-y-0">
           <div className="border-y border-white/10 pt-8 pb-4">
@@ -513,14 +513,14 @@ export function NewsTicker({ className, visibleRows = 6 }: { className?: string;
           <div className="sm:hidden px-4 md:px-6 text-right text-white/60 text-xs py-1">{totalFeeds} feeds</div>
 
           {/* Dim-only container: avoids double content by not rendering overlay */}
-          <div className="relative" data-news-rows="base" style={{ contain: 'layout style paint' }}>
+          <div className="relative overflow-hidden" data-news-rows="base" style={{ contain: 'layout style paint', maxWidth: '100vw' }}>
             {/* Base content (always visible) */}
             {rowsData.map((rowItems, i) => {
               const dimOpacity = isRefreshing && tickerStates[i] ? Math.max(0.5, 0.72 - i * 0.035) : undefined;
               return (
               <div key={`ticker-row-${i}`} className={cn(i === 0 ? "border-y border-white/10" : "border-b border-white/10", "transition-all duration-1200 ease-in-out", tickerStates[i] ? "opacity-100 translate-y-0 blur-0 scale-100" : "opacity-0 translate-y-4 blur-[2px] scale-[0.99]", isRefreshing && tickerStates[i] ? "blur-sm" : "")} style={dimOpacity !== undefined ? { opacity: dimOpacity } : undefined}> 
-                <div className="relative">
-                  <div className="flex whitespace-nowrap will-change-transform" style={getRowStyle(i)}>
+                <div className="relative overflow-hidden" style={{ maxWidth: '100vw' }}>
+                  <div className="flex whitespace-nowrap will-change-transform" style={{ ...getRowStyle(i), maxWidth: 'none' }}>
                     {rowItems.map((item, idx) => (
                       <span key={`row${i}-${item.id}-${idx}`} className="flex items-center gap-2.5 md:gap-3 px-2.5 md:px-4 py-2 md:py-3 text-xs sm:text-sm md:text-base flex-shrink-0">
                         {item.source && (
